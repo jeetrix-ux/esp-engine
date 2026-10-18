@@ -83,3 +83,7 @@ docs/     BENCHMARKS.md WALKTHROUGH.md bench/
 
 - **ESN underflow in the RFC pseudocode.** RFC 4303 A2.2 Case B returns `Th - 1`; on a fresh SA (`Th = 0`) that wraps to `0xffffffff`, so the first packets after a jump near 2^32 failed authentication. Fixed with a guard, pinned by `test_esn_fresh_sa_does_not_underflow`.
 - **Peer starting at sequence 0.** Scapy's SA sends sequence number 0 by default; RFC 4303 starts at 1 and the receiver correctly rejects 0 as stale. The interop test now configures the peer per the RFC.
+
+## Third-party data
+
+`tests/vectors/aes_gcm_test.json` is from [Project Wycheproof](https://github.com/C2SP/wycheproof) (Apache-2.0).
