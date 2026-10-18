@@ -1,0 +1,64 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    name: build + test (${{ matrix.cc }})
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        cc: [gcc, clang]
+    steps:
+      - uses: actions/checkout@v4
+      - name: install
+        run: sudo apt-get update && sudo apt-get install -y python3-pytest python3-scapy tcpdump iproute2
+      - name: build
+        run: make CC=${{ matrix.cc }} CFLAGS="-O2 -g -Werror" all
+      - name: known-answer tests
+        run: build/native/test_kat
+      - name: pytest (Wycheproof, Scapy interop, replay model, negative, kernel XFRM interop)
+        # root for the network-namespace tests; -E keeps PATH/ESP_LIB
+        run: sudo -E env "PATH=$PATH" ESP_LIB=build/native/libesp.so python3 -m pytest -v -p no:cacheprovider --junitxml=build/junit.xml tests
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: junit-${{ matrix.cc }}
+          path: build/junit.xml
+
+  sanitizers:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y python3-pytest python3-scapy
+      - name: pytest against an ASan + UBSan build
+        run: make asan
+      - name: libFuzzer, inbound path, 120 s
+        run: make fuzz FUZZ_TIME=120
+
+  cross:
+    name: ${{ matrix.arch }} under QEMU
+    runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        include:
+          - arch: aarch64
+            pkgs: gcc-aarch64-linux-gnu libc6-dev-arm64-cross
+          - arch: riscv64
+            pkgs: gcc-riscv64-linux-gnu libc6-dev-riscv64-cross
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y qemu-user ${{ matrix.pkgs }}
+      - name: cross-compile and run the KAT + differential suite
+        run: |
+          make CC=${{ matrix.arch }}-linux-gnu-gcc AR=${{ matrix.arch }}-linux-gnu-ar BUILD=build/${{ matrix.arch }} kat
+          qemu-${{ matrix.arch }} -L /usr/${{ matrix.arch }}-linux-gnu build/${{ matrix.arch }}/test_kat
+
+  bench:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: make bench && build/native/espbench 0.3 4 | tee bench.txt | perl scripts/bench_report.pl >> "$GITHUB_STEP_SUMMARY"
